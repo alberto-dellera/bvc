@@ -89,6 +89,8 @@ begin
 
   bvc_tokenizer_pkg.debug_print_tokens ('insert into t partition ( SYS_P32596 )  select sum(x) over( partition by x) from t partition(SYS_P32596)');
   
+  bvc_tokenizer_pkg.debug_print_tokens ('declare x int; begin x:=owner . name(); end;');
+
   bvc_tokenizer_pkg.set_log (false);
 end;
 /
