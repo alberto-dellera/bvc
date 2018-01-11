@@ -903,7 +903,8 @@ function least_non_zero (
   p1 int, 
   p2 int default 0, 
   p3 int default 0, 
-  p4 int default 0
+  p4 int default 0,
+  p5 int default 0
 )
 return int
 is
@@ -920,6 +921,9 @@ begin
   end if;
   if p4 <> 0 and p4 < l_ret then
     l_ret := p4;
+  end if;
+  if p5 <> 0 and p5 < l_ret then
+    l_ret := p5;
   end if;
   return l_ret; 
 end;
@@ -939,6 +943,8 @@ return int
 is
   l_closing_token varchar2(2);
   l_closing_pos int;
+  l_quote_delimiter varchar2(1);
+  l_close_delimiter varchar2(1);
 begin
   if p_opening_token = '/*' then
     l_closing_token := '*/';
@@ -948,6 +954,23 @@ begin
     l_closing_token := '"';
   elsif p_opening_token = '''' then
     l_closing_token :=  '''';
+  elsif p_opening_token = 'q''' then
+    -- get quote_delimiter 
+    l_quote_delimiter := substr (p_stmt_stripped, p_opening_pos+2, 1);
+    -- l_quote_delimiter = ' ' is possible only when the stmt is truncated,
+    -- since ' ' is not a valid quote delimiter 
+    if l_quote_delimiter = ' ' then 
+      l_closing_token := ' ';
+    else 
+      l_close_delimiter := case l_quote_delimiter 
+                             when '[' then ']'  
+                             when '{' then '}'
+                             when '<' then '>'
+                             when '(' then ')'
+                             else l_close_delimiter
+                           end; 
+      l_closing_token := l_close_delimiter || '''';
+    end if;
   end if;
   
   l_closing_pos := instr (p_stmt_stripped, 
@@ -961,6 +984,7 @@ begin
   end if;
   
   -- handle double-quotes in string eg 'dell''era'
+  -- by searching again after the current closing position
   if p_opening_token = '''' 
      and substr (p_stmt_stripped, l_closing_pos+1, 1) = '''' 
   then
@@ -1005,18 +1029,22 @@ is
   l_first_hh  int default 1;
   l_first_dq  int default 1;
   l_first_sq  int default 1;
+  l_first_qs  int default 1;
   l_first_min int;
   l_closing_pos int;
   l_token_type varchar2(30);
+  p_stmt_stripped_lower long;
 begin
   
   loop
     -- get first stringlike opening position
-    l_first_ss  := instr (p_stmt_stripped, '/*', l_first_ss);
-    l_first_hh  := instr (p_stmt_stripped, '--', l_first_hh);
-    l_first_dq  := instr (p_stmt_stripped, '"' , l_first_dq);
-    l_first_sq  := instr (p_stmt_stripped, '''', l_first_sq);
-    l_first_min := least_non_zero (l_first_ss, l_first_hh, l_first_dq, l_first_sq);
+    p_stmt_stripped_lower := lower(p_stmt_stripped);
+    l_first_ss  := instr (p_stmt_stripped      , '/*' , l_first_ss);
+    l_first_hh  := instr (p_stmt_stripped      , '--' , l_first_hh);
+    l_first_dq  := instr (p_stmt_stripped      , '"'  , l_first_dq);
+    l_first_sq  := instr (p_stmt_stripped      , '''' , l_first_sq);
+    l_first_qs  := instr (p_stmt_stripped_lower, 'q''', l_first_qs);
+    l_first_min := least_non_zero (l_first_ss, l_first_hh, l_first_dq, l_first_sq, l_first_qs);
     exit when l_first_min = 0;
     
     -- get closing position and type of stringlike
@@ -1039,6 +1067,9 @@ begin
       l_token_type  := 'ident';
     elsif l_first_min = l_first_sq then
       l_closing_pos := get_closing_pos (p_stmt_stripped, l_first_min, '''');
+      l_token_type  := 'string';
+    elsif l_first_min = l_first_qs then 
+      l_closing_pos := get_closing_pos (p_stmt_stripped, l_first_min, 'q''');
       l_token_type  := 'string';
     end if;
     

@@ -87,10 +87,6 @@ begin
 
   dbms_output.put_line('.');
 
-  bvc_tokenizer_pkg.debug_print_tokens (' select Q''|xxx|'', q''[xxx]'', q''{xxx}'', q''<xxx>'', q''(xxx)'', q''xxx'', q''()''  ' );
-
-  dbms_output.put_line('.');
-
   bvc_tokenizer_pkg.debug_print_tokens ('insert into t partition ( SYS_P32596 )  select sum(x) over( partition by x) from t partition(SYS_P32596)');
   
   bvc_tokenizer_pkg.debug_print_tokens ('declare x int; begin x:=owner . name(); end;');
@@ -135,18 +131,3 @@ end;
 /
 exec dbms_profiler.stop_profiler;
 */
-
-declare 
-  l_values bvc_tokenizer_pkg.t_varchar2;     
-  l_types  bvc_tokenizer_pkg.t_varchar2_30;
-  i binary_integer;
-begin 
-  bvc_tokenizer_pkg.tokenize('select * from dual', l_values, l_types);
-  dbms_output.put_line(l_values.count);
-  i := l_values.first();
-  while i is not null loop
-    dbms_output.put_line(i||' '||l_values(i));
-    i := l_values.next(i);
-  end loop;
-end;
-/

@@ -1,5 +1,9 @@
+-----------------------------------------------------------------------------------------
 -- Bind Variables Checker: Tokenizer, and Statement Binder
---
+-- Author:      Alberto Dell'Era
+-- Copyright:   (c) 2003 - 2017 Alberto Dell'Era http://www.adellera.it
+-----------------------------------------------------------------------------------------
+
 -----------------------------------------------------------------------------------------
 -- "Statement Tokenizer": a routine that takes a SQL statement and breaks 
 -- it into its tokens. 
@@ -54,94 +58,16 @@
 --  i.e. every occurrence of t123 is substituted with t{0}, c4 with c{1} and so on.
 -- Obviously this permits to understand where the same identifier is referenced in
 -- the bound-statement.
+-- 
+-- If p_normalize_partition_names is 'Y' (the default), partition names are normalized with "#<progressive>";
+-- partitions with the same name gets the same normalizing identifier.
 --
+-- If p_strip_hints is 'Y' (default is 'N'), hints are removed
+-- 
 -- Author: Alberto Dell'Era, first version: 28th of July 2003
--- $Id: bvc_tokenizer_pkg.sql,v 1.1 2005/08/29 08:53:23 adellera Exp $
-
-set echo on
-set serveroutput on size 1000000 format wrapped
 
 ----------------------------------------------------------
---------------------- PACKAGE HEADER ---------------------
-----------------------------------------------------------
-create or replace package bvc_tokenizer_pkg as
-
-  -- transforms a statement in a (normalized) bound statement:
-  -- 1) all literals replaced with binds (numbers -> :n, strings -> :s) 
-  -- 2) all bind variables replaced with a single name (:b)
-  -- 3) redundant white space removed ( a = b -> a=b, from   t -> from t)
-  -- 4) all in lowercase, but not doublequoted idents (SELECT FROM "TAB", T -> select from "TAB", t)
-  -- 5) comments removed (but hints preserved and normalized)
-  -- 6) (optionally but on by default) numbers in ident normalized:
-  --    select * from t t102, u t103, v t102 -> select * from t t{0}, u t{1}, v t{0} 
-  function bound_stmt (
-    p_stmt                       varchar2,
-    p_normalize_numbers_in_ident varchar2 default 'Y')
-  return varchar2
-  deterministic;
-  
-  type t_int         is table of int index by binary_integer;
-  type t_varchar2    is table of long index by binary_integer;
-  type t_varchar2_30 is table of varchar2 (30) index by binary_integer;
-  
-  -- same as bound_stmt, but returns also
-  -- 1) p_num_replaced_literals: the number of literals (numbers and strings) replaced
-  --    if p_num_replaced_literals=0, the original statement contained bind values only.
-  -- 2) p_replaced_values: the values of literals and names of bind variables replaced
-  -- 3) p_replaced_values_type: their types ('number','string','bind')
-  function bound_stmt_verbose (
-    p_stmt                       varchar2,
-    p_normalize_numbers_in_ident varchar2 default 'Y',
-    p_num_replaced_literals      out int,
-    p_replaced_values            out t_varchar2,
-    p_replaced_values_type       out t_varchar2_30
-  )
-  return varchar2
-  deterministic;
-
-  -- tokenize a statement (the workhorse)
-  -- p_tokens: the "tokens" of the statement, ie an index-by table, indexed by the
-  -- position of the first character of the token in the statement, 
-  -- that contains the token value (eg 'select', ':b1', 'owner', ecc)
-  -- p_tokens_type: the token type ('keyword', 'bind', 'ident',
-  --                'string', 'number', 'hint','comment', 'conn')
-  -- 'conn' means a connecting token, eg 'where a<=b' is
-  -- keyword "where"
-  --    conn " "
-  --   ident "a"
-  --    conn "<="
-  --   ident "b"
-  procedure tokenize (
-    p_stmt        varchar2,
-    p_tokens      out nocopy t_varchar2,
-    p_tokens_type out nocopy t_varchar2_30
-  );
-  
-  -- set logging mode (log to dbms_output)
-  procedure set_log (p_value boolean default true);
-  
-  -- print on dbms_output the extracted tokens
-  procedure debug_print_tokens (p_stmt varchar2);
-  
-end bvc_tokenizer_pkg;
-/
-show errors;
-
-----------------------------------------------------------
----------------------- PACKAGE BODY ----------------------
-----------------------------------------------------------
-create or replace package body bvc_tokenizer_pkg as
-
-type t_string_index is table of varchar2(1) index by varchar2(30);
-type t_number_map is table of varchar2(10) index by varchar2(1000);
-
--- the strict-sense keyword ("table" is a keyword, "sysdate" is not)
-g_keywords t_string_index;
-
--- log/nolog flag
-g_log boolean default false;
-
-----------------------------------------------------------
+-- set logging mode (log to dbms_output)
 procedure set_log (p_value boolean default true)
 is
 begin
@@ -1548,6 +1474,18 @@ begin
 end extract_remaining;
 
 ----------------------------------------------------------
+-- tokenize a statement (the workhorse)
+-- p_tokens: the "tokens" of the statement, ie an index-by table, indexed by the
+-- position of the first character of the token in the statement, 
+-- that contains the token value (eg 'select', ':b1', 'owner', ecc)
+-- p_tokens_type: the token type ('keyword', 'bind', 'ident',
+--                'string', 'number', 'hint','comment', 'conn')
+-- 'conn' means a connecting token, eg 'where a<=b' is
+-- keyword "where"
+--    conn " "
+--   ident "a"
+--    conn "<="
+--   ident "b"
 procedure tokenize (
   p_stmt        varchar2,
   p_tokens      out nocopy t_varchar2,
@@ -1567,6 +1505,7 @@ begin
 end tokenize;
 
 ----------------------------------------------------------
+-- print on dbms_output the extracted tokens
 procedure debug_print_tokens (p_stmt varchar2)
 is
   l_i int;
@@ -1589,7 +1528,7 @@ end debug_print_tokens;
 -- the number is the same across the statemenet
 -- if the sequence is the same.
 -- ie if "t103" -> "t{0}", "x103" -> "x{0}"
--- non double-quoted identifier are normalized in lowercase.
+-- non double-quoted identifiers are normalized in lowercase.
 function normalize_ident (
   p_ident      varchar2, 
   p_number_map in out nocopy t_number_map,
@@ -1645,23 +1584,102 @@ begin
 end normalize_ident;
 
 ----------------------------------------------------------
+procedure check_partition_reference( p_tokens in out t_varchar2, p_tokens_type in out t_varchar2_30, p_i_part int, p_partition_ident_index out int )
+is 
+  l_next_1 int;
+  l_next_2 int;
+  l_next_3 int;
+begin 
+
+  -- check "partition pxx"
+  l_next_1 := p_tokens.next ( p_i_part );
+  if l_next_1 is null then return; end if;
+
+  l_next_2 := p_tokens.next ( l_next_1 );
+  if l_next_2 is null then return; end if;
+
+  if p_tokens_type( l_next_1 ) = 'conn' and p_tokens_type( l_next_2 ) = 'ident' then 
+    p_partition_ident_index := l_next_2;
+    return; 
+  end if; 
+
+  -- check "partition ( pxx )"
+  if p_tokens_type( l_next_1 ) != 'conn' or trim(p_tokens( l_next_1 )) != '(' then
+    log( '--> '||p_tokens_type( l_next_1)||' '||trim(p_tokens( l_next_1 ))  ); 
+    return;
+  end if;
+
+  if p_tokens_type( l_next_2 ) != 'ident' then 
+    return;
+  end if;
+
+  l_next_3 := p_tokens.next ( l_next_2 );
+  if l_next_3 is null then return; end if;
+
+  if p_tokens_type( l_next_3 ) != 'conn' or trim(p_tokens( l_next_3 )) != ')' then 
+    return;
+  end if;  
+
+  p_partition_ident_index := l_next_2;
+end check_partition_reference;
+
+----------------------------------------------------------
+procedure mark_partition_idents( p_tokens in out t_varchar2, p_tokens_type in out t_varchar2_30, p_partition_idents out t_varchar2_30 )
+is 
+  l_i int;
+  l_token long;
+  l_token_type varchar2(30);
+  l_partition_ident_index int;
+
+  
+begin 
+  l_i := p_tokens.first;
+  loop
+    exit when l_i is null;
+
+    l_token      := p_tokens      (l_i);
+    l_token_type := p_tokens_type (l_i);
+
+    log( l_token ||' '||l_token_type );
+
+    if l_token_type = 'keyword' and lower(trim(l_token)) = 'partition' then 
+      check_partition_reference( p_tokens, p_tokens_type, l_i, l_partition_ident_index );
+      if l_partition_ident_index is not null then 
+        p_partition_idents( l_partition_ident_index ) := 'x';
+      end if;
+    end if; 
+
+    l_i := p_tokens.next (l_i);
+  end loop;
+end mark_partition_idents;
+
+----------------------------------------------------------
+-- same as bound_stmt, but returns also
+-- 1) p_num_replaced_literals: the number of literals (numbers and strings) replaced
+--    if p_num_replaced_literals=0, the original statement contained bind values only.
+-- 2) p_replaced_values: the values of literals and names of bind variables replaced
+-- 3) p_replaced_values_type: their types ('number','string','bind')
 function bound_stmt_verbose (
-    p_stmt                       varchar2,
-    p_normalize_numbers_in_ident varchar2 default 'Y',
-    p_num_replaced_literals      out int,
-    p_replaced_values            out t_varchar2,
-    p_replaced_values_type       out t_varchar2_30
+  p_stmt                       varchar2,
+  p_normalize_numbers_in_ident varchar2 default 'Y',
+  p_normalize_partition_names  varchar2 default 'Y',
+  p_strip_hints                varchar2 default 'N',
+  p_num_replaced_literals      out int,
+  p_replaced_values            out t_varchar2,
+  p_replaced_values_type       out t_varchar2_30
 )
 return varchar2
-deterministic
+&&deterministic.
 is
   l_i int;
   l_tokens t_varchar2;
   l_tokens_type t_varchar2_30;
+  l_partition_idents t_varchar2_30;
   l_token long;
   l_token_type varchar2(30);
   l_o long;
   l_number_map t_number_map;
+  l_part_map   t_part_map;
   l_separators varchar2(20) := '=<>!+-*/(),;|:[].@';
   l_sep varchar2 (1 char);
   l_lengthb_old int;
@@ -1674,17 +1692,30 @@ begin
   
   -- tokenize 
   tokenize (p_stmt, l_tokens, l_tokens_type);
+
+  -- normalize partitions 
+  if p_normalize_partition_names = 'Y' then 
+    mark_partition_idents( l_tokens, l_tokens_type, l_partition_idents );
+  end if;
   
   -- rebuild the statement replacing strings and numbers with binds, ecc
   l_i := l_tokens.first;
   loop
     exit when l_i is null;
+    if lengthb(l_o) > 32767 - 30 then 
+      return '**bound statement too long**';
+    end if;
     l_token      := l_tokens      (l_i);
     l_token_type := l_tokens_type (l_i);
     if l_token_type in ('conn','keyword') then
       l_o := l_o || lower(l_token);
     elsif l_token_type = 'hint' then
-      l_o := l_o || normalize_ident (l_token, l_number_map, p_normalize_numbers_in_ident);
+      -- strip hints or normalize
+      if p_strip_hints = 'Y' then 
+        l_o := l_o || ' ';
+      else 
+        l_o := l_o || normalize_ident (l_token, l_number_map, p_normalize_numbers_in_ident);
+      end if;
     elsif l_token_type = 'comment' then
       l_o := l_o || ' ';
     elsif l_token_type = 'bind' then
@@ -1702,7 +1733,17 @@ begin
       p_replaced_values     (p_replaced_values     .count) := l_token;
       p_replaced_values_type(p_replaced_values_type.count) := l_token_type;
     elsif l_token_type = 'ident' then
-      l_o := l_o || normalize_ident (l_token, l_number_map, p_normalize_numbers_in_ident);
+      -- substitute partition identifier or normalize  
+      if l_partition_idents.exists(l_i) then 
+        if not l_part_map.exists(l_token) then 
+          l_part_map(l_token) := '#'||l_part_map.count;
+        end if;
+        l_o := l_o || l_part_map(l_token);
+        p_replaced_values     (p_replaced_values     .count) := l_token;
+        p_replaced_values_type(p_replaced_values_type.count) := l_token_type;
+      else 
+        l_o := l_o || normalize_ident (l_token, l_number_map, p_normalize_numbers_in_ident);
+      end if;
     else
       raise_application_error (-20010, 'unknown token type <'||l_token_type||'> for token <'||l_token||'>');
     end if;
@@ -1729,11 +1770,24 @@ begin
 end bound_stmt_verbose;
 
 ----------------------------------------------------------
+-- transforms a statement in a (normalized) bound statement:
+-- 1) all literals replaced with binds (numbers -> :n, strings -> :s) 
+-- 2) all bind variables replaced with a single name (:b)
+-- 3) redundant white space removed ( a = b -> a=b, from   t -> from t)
+-- 4) all in lowercase, but not doublequoted idents (SELECT FROM "TAB", T -> select from "TAB", t)
+-- 5) comments removed (but hints preserved and normalized)
+-- 6) (optionally but on by default) numbers in ident normalized:
+--    select * from t t102, u t103, v t102 -> select * from t t{0}, u t{1}, v t{0} 
+-- 7) (optionally but on by default) partition names normalized:
+--    insert into t partition ( PA ) select * from t partition(PA) -> insert into t partition(#0) select * from t partition(#0)
 function bound_stmt (
   p_stmt                       varchar2,
-  p_normalize_numbers_in_ident varchar2 default 'Y')
+  p_normalize_numbers_in_ident varchar2 default 'Y',
+  p_normalize_partition_names  varchar2 default 'Y',
+  p_strip_hints                varchar2 default 'N'
+)
 return varchar2
-deterministic
+&&deterministic.
 is
   l_num_replaced_literals int;
   l_replaced_values      t_varchar2;
@@ -1742,57 +1796,12 @@ begin
   return bound_stmt_verbose (
     p_stmt, 
     p_normalize_numbers_in_ident,
+    p_normalize_partition_names,
+    p_strip_hints,
     l_num_replaced_literals,
     l_replaced_values,
     l_replaced_values_type
   );
 end bound_stmt;
 
-begin
-  populate_g_keywords;
-end bvc_tokenizer_pkg;
-/
-show errors;
 
--- sanity check installation
-begin
-  bvc_tokenizer_pkg.set_log;
-  
-  bvc_tokenizer_pkg.debug_print_tokens (
-    replace ('/**/select /*+comment*/a,x.b,c_$#,e "ident" --+xx'||chr(10)||
-              'FROM t where!a!!b!= +1.e-23 and !!!!=:ph1:ind and :1=: "ph_23" and 1. = .0 or :y = :   x',
-             '!', '''')
-  );  
-  bvc_tokenizer_pkg.debug_print_tokens ('  where +1 = 3 and -9.1=a+1.9 and b = - 1 and c =c++1 and d=d*+1');
-  
-  bvc_tokenizer_pkg.set_log (false);
-end;
-/
-
-select bvc_tokenizer_pkg.bound_stmt ('select /*+hint*/ /*co*/ x , C, "AA" FROM t t103 where 1  =  ''pippo'' and  :ph3= "t103"') from dual;
-
-/*
-exec bvc_tokenizer_pkg.set_log(false);
-spool x.txt
-select sql_text, bvc_tokenizer_pkg.bound_stmt(sql_text, 'y') from v$sql;
-spool off
-*/
-
-/*
-@profreset
-commit;
-
-exec dbms_profiler.start_profiler ('tokenizer');
-set timing on
-declare
-  l_stmt varchar2(1000);
-  l_stmt2 varchar2(1000);
-begin
-  select sql_text into l_stmt from v$sql where length(sql_text)=(select max(length(sql_text)) from v$sql) and rownum=1;
-  for i in 1..100 loop
-    l_stmt2 := bvc_tokenizer_pkg.bound_stmt (l_stmt);
-  end loop;
-end;
-/
-exec dbms_profiler.stop_profiler;
-*/
