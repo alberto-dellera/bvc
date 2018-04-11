@@ -1,7 +1,7 @@
 -----------------------------------------------------------------------------------------
 -- Bind Variables Checker: Tokenizer, and Statement Binder
 -- Author:      Alberto Dell'Era
--- Copyright:   (c) 2003 - 2017 Alberto Dell'Era http://www.adellera.it
+-- Copyright:   (c) 2003 - 2018 Alberto Dell'Era http://www.adellera.it
 -----------------------------------------------------------------------------------------
 
 -----------------------------------------------------------------------------------------
