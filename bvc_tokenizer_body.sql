@@ -1556,9 +1556,10 @@ end debug_print_tokens;
 ----------------------------------------------------------
 -- returns a normalized identifier. 
 -- Each sequence of digits is replaced by a number;
--- the number is the same across the statemenet
+-- the number is the same across the statement 
 -- if the sequence is the same.
--- ie if "t103" -> "t{0}", "x103" -> "x{0}"
+-- ie if "t103" -> "$0", "x103" -> "$0"
+-- ie note: before 20200414 it was "t103" -> "t{0}", "x103" -> "x{0}"
 -- non double-quoted identifiers are normalized in lowercase.
 function normalize_ident (
   p_ident      varchar2, 
@@ -1593,7 +1594,9 @@ begin
             p_number_map(l_number):= p_number_map.count;
           end if;
           -- return normalized sequence
-          l_out := l_out || chr(123) || p_number_map(l_number) || chr(125) || c;
+          -- 20200414: now replacing with $<number> instead of {<number>} to shorten bound text 
+          -- l_out := l_out || chr(123) || p_number_map(l_number) || chr(125) || c;
+          l_out := l_out || '$' || p_number_map(l_number) || c;
           l_first_digit := null;
         else
           null;
@@ -1661,8 +1664,6 @@ is
   l_token long;
   l_token_type varchar2(30);
   l_partition_ident_index int;
-
-  
 begin 
   l_i := p_tokens.first;
   loop
@@ -1684,12 +1685,131 @@ begin
   end loop;
 end mark_partition_idents;
 
+-- ----------------------------------------------------------
+-- -- same as bound_stmt, but returns also
+-- -- 1) p_num_replaced_literals: the number of literals (numbers and strings) replaced
+-- --    if p_num_replaced_literals=0, the original statement contained bind values only.
+-- -- 2) p_replaced_values: the values of literals and names of bind variables replaced
+-- -- 3) p_replaced_values_type: their types ('number','string','bind')
+-- function bound_stmt_verbose_vc (
+--   p_stmt                       varchar2,
+--   p_normalize_numbers_in_ident varchar2 default 'Y',
+--   p_normalize_partition_names  varchar2 default 'Y',
+--   p_strip_hints                varchar2 default 'N',
+--   p_num_replaced_literals      out int,
+--   p_replaced_values            out t_varchar2,
+--   p_replaced_values_type       out t_varchar2_30
+-- )
+-- return varchar2
+-- &&deterministic.
+-- is
+--   l_i int;
+--   l_tokens t_varchar2;
+--   l_tokens_type t_varchar2_30;
+--   l_partition_idents t_varchar2_30;
+--   l_token long;
+--   l_token_type varchar2(30);
+--   l_o long;
+--   l_number_map t_number_map;
+--   l_part_map   t_part_map;
+--   l_separators varchar2(20) := '=<>!+-*/(),;|:[].@';
+--   l_sep varchar2 (1 char);
+--   l_lengthb_old int;
+-- begin
+--   p_num_replaced_literals := 0;
+-- 
+--   if p_stmt is null then
+--     return null;
+--   end if;
+--   
+--   -- tokenize 
+--   tokenize (p_stmt, l_tokens, l_tokens_type);
+-- 
+--   -- normalize partitions 
+--   if p_normalize_partition_names = 'Y' then 
+--     mark_partition_idents( l_tokens, l_tokens_type, l_partition_idents );
+--   end if;
+--   
+--   -- rebuild the statement replacing strings and numbers with binds, ecc
+--   l_i := l_tokens.first;
+--   loop
+--     exit when l_i is null;
+--     if lengthb(l_o) > 32767 - 30 then 
+--       return '**bound statement too long**';
+--     end if;
+--     l_token      := l_tokens      (l_i);
+--     l_token_type := l_tokens_type (l_i);
+--     if l_token_type in ('conn','keyword') then
+--       l_o := l_o || lower(l_token);
+--     elsif l_token_type = 'hint' then
+--       -- strip hints or normalize
+--       if p_strip_hints = 'Y' then 
+--         l_o := l_o || ' ';
+--       else 
+--         l_o := l_o || normalize_ident (l_token, l_number_map, p_normalize_numbers_in_ident);
+--       end if;
+--     elsif l_token_type = 'comment' then
+--       l_o := l_o || ' ';
+--     elsif l_token_type = 'bind' then
+--       l_o := l_o || ':b';
+--       p_replaced_values     (p_replaced_values     .count) := l_token;
+--       p_replaced_values_type(p_replaced_values_type.count) := l_token_type;
+--     elsif l_token_type = 'number' then  
+--       l_o := l_o || ':n';
+--       p_num_replaced_literals := p_num_replaced_literals + 1;
+--       p_replaced_values     (p_replaced_values     .count) := l_token;
+--       p_replaced_values_type(p_replaced_values_type.count) := l_token_type;
+--     elsif l_token_type = 'string' then  
+--       l_o := l_o || ':s';
+--       p_num_replaced_literals := p_num_replaced_literals + 1;
+--       p_replaced_values     (p_replaced_values     .count) := l_token;
+--       p_replaced_values_type(p_replaced_values_type.count) := l_token_type;
+--     elsif l_token_type = 'ident' then
+--       -- substitute partition identifier or normalize  
+--       if l_partition_idents.exists(l_i) then 
+--         if not l_part_map.exists(l_token) then 
+--           l_part_map(l_token) := '#'||l_part_map.count;
+--         end if;
+--         l_o := l_o || l_part_map(l_token);
+--         p_replaced_values     (p_replaced_values     .count) := l_token;
+--         p_replaced_values_type(p_replaced_values_type.count) := l_token_type;
+--       else 
+--         l_o := l_o || normalize_ident (l_token, l_number_map, p_normalize_numbers_in_ident);
+--       end if;
+--     else
+--       raise_application_error (-20010, 'unknown token type <'||l_token_type||'> for token <'||l_token||'>');
+--     end if;
+--     
+--     l_i := l_tokens.next (l_i);
+--   end loop;    
+--   
+--   -- transform white space in blanks
+--   l_o := replace (l_o, chr(10), ' ');
+--   l_o := replace (l_o, chr(9) , ' ');
+--   -- remove double blanks
+--   loop
+--     l_lengthb_old := lengthb (l_o);
+--     l_o := replace (l_o, '  ', ' ');
+--     exit when lengthb (l_o) = l_lengthb_old or l_o is null;
+--   end loop;
+--   -- remove redundant white space
+--   for i in 1..length(l_separators) loop
+--     l_sep := substr (l_separators, i, 1);
+--     l_o := replace (l_o, l_sep||' ', l_sep);
+--     l_o := replace (l_o, ' '||l_sep, l_sep);
+--   end loop;
+--   return trim(l_o);
+-- end bound_stmt_verbose_vc;
+
 ----------------------------------------------------------
 -- same as bound_stmt, but returns also
 -- 1) p_num_replaced_literals: the number of literals (numbers and strings) replaced
 --    if p_num_replaced_literals=0, the original statement contained bind values only.
 -- 2) p_replaced_values: the values of literals and names of bind variables replaced
 -- 3) p_replaced_values_type: their types ('number','string','bind')
+-- 20200414: this version uses a clob internally, and regexps, to be able to bound more statements;
+--           the old version, useful for 9i instances that does not have regexp etc, is 
+--           available (and commented) as bound_stmt_verbose_vc above.
 function bound_stmt_verbose (
   p_stmt                       varchar2,
   p_normalize_numbers_in_ident varchar2 default 'Y',
@@ -1708,12 +1828,12 @@ is
   l_partition_idents t_varchar2_30;
   l_token long;
   l_token_type varchar2(30);
-  l_o long;
+  l_o clob; -- 20200414: check comments above 
   l_number_map t_number_map;
   l_part_map   t_part_map;
-  l_separators varchar2(20) := '=<>!+-*/(),;|:[].@';
   l_sep varchar2 (1 char);
   l_lengthb_old int;
+  l_out_length_limit int :=  32767 - 30;
 begin
   p_num_replaced_literals := 0;
 
@@ -1733,9 +1853,6 @@ begin
   l_i := l_tokens.first;
   loop
     exit when l_i is null;
-    if lengthb(l_o) > 32767 - 30 then 
-      return '**bound statement too long**';
-    end if;
     l_token      := l_tokens      (l_i);
     l_token_type := l_tokens_type (l_i);
     if l_token_type in ('conn','keyword') then
@@ -1782,22 +1899,23 @@ begin
     l_i := l_tokens.next (l_i);
   end loop;    
   
-  -- transform white space in blanks
-  l_o := replace (l_o, chr(10), ' ');
-  l_o := replace (l_o, chr(9) , ' ');
-  -- remove double blanks
-  loop
-    l_lengthb_old := lengthb (l_o);
-    l_o := replace (l_o, '  ', ' ');
-    exit when lengthb (l_o) = l_lengthb_old or l_o is null;
-  end loop;
-  -- remove redundant white space
-  for i in 1..length(l_separators) loop
-    l_sep := substr (l_separators, i, 1);
-    l_o := replace (l_o, l_sep||' ', l_sep);
-    l_o := replace (l_o, ' '||l_sep, l_sep);
-  end loop;
-  return trim(l_o);
+  -- replace white space (that includes \r and \n) with a single char
+  l_o := regexp_replace( l_o, '[[:space:]]{2,}', ' ' );
+
+  -- remove redundant white space around separators such as + , ( ) etc etc
+  -- note: not using characted classes (i.e. "[abc]") for escaping issues
+  l_o  := regexp_replace( l_o, '\s*(\=|\<|\>|\!|\+|\-|\*|\/|\(|\)|\,|\;|\||\:|\[|\]|\.|\@)\s*', '\1');
+
+  -- trim 
+  l_o  := regexp_replace( l_o, '^\s+', '');
+  l_o  := regexp_replace( l_o, '\s+$', '');
+
+  -- return 
+  if length(l_o) > l_out_length_limit then 
+    return '**bound statement too long**';
+  else 
+    return sys.dbms_lob.substr(l_o, l_out_length_limit);
+  end if;
 end bound_stmt_verbose;
 
 ----------------------------------------------------------
