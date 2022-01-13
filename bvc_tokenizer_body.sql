@@ -1900,7 +1900,7 @@ begin
   end loop;    
   
   -- replace white space (that includes \r and \n) with a single char
-  l_o := regexp_replace( l_o, '[[:space:]]{2,}', ' ' );
+  l_o := regexp_replace( l_o, '([[:cntrl:]]|[[:space:]])+', ' ' );
 
   -- remove redundant white space around separators such as + , ( ) etc etc
   -- note: not using characted classes (i.e. "[abc]") for escaping issues
