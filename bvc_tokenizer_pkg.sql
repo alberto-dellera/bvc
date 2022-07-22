@@ -153,4 +153,4 @@ begin
 end;
 /
 
-select bvc_tokenizer_pkg.bound_stmt (q'[select * from t where x in ('a','b') and y in (1,2) and b in (:vc,:vb) and b1 in (:8,:9)]', p_in_bind_list_as_bind_vec=>'Y') as bound_stmt from dual;
+select bvc_tokenizer_pkg.bound_stmt (q'[select * from t where x in ('a','b') and y in (1,2) and b in (:vc,:vb) and b1 in (:8,:9) and z in (:n)]', p_in_bind_list_as_bind_vec=>'Y') as bound_stmt from dual;

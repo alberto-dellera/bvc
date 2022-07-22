@@ -1904,7 +1904,11 @@ begin
   --   "in(:b,:b,:b)" => "in(:b_vec)"
   --   "in(:s,:s,:s)" => "in(:s_vec)"
   --   "in(:n,:n,:n)" => "in(:n_vec)"
-  -- this is mainly to support user-provided list of values passed as in-list 
+  -- this is mainly to support user-provided list of "parameters" passed as in-list.
+  -- even only a single bind inside the "in" is considered a bind vector:
+  --   "in(:b)" => "in(:b_vec)"
+  -- since of course users might decide to pass just one "parameter"
+  -- even if usually they provide much more than one
   if upper(p_in_bind_list_as_bind_vec) = 'Y' then 
     l_o := regexp_replace( l_o, '(\W)in\s*\((:b,?)+\)', '\1in(:b_vec)' );
     l_o := regexp_replace( l_o, '(\W)in\s*\((:s,?)+\)', '\1in(:s_vec)' );
