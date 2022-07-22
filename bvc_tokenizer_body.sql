@@ -1814,6 +1814,7 @@ function bound_stmt_verbose (
   p_stmt                       varchar2,
   p_normalize_numbers_in_ident varchar2 default 'Y',
   p_normalize_partition_names  varchar2 default 'Y',
+  p_in_bind_list_as_bind_vec   varchar2 default 'Y',
   p_strip_hints                varchar2 default 'N',
   p_num_replaced_literals      out int,
   p_replaced_values            out t_varchar2,
@@ -1845,7 +1846,7 @@ begin
   tokenize (p_stmt, l_tokens, l_tokens_type);
 
   -- normalize partitions 
-  if p_normalize_partition_names = 'Y' then 
+  if upper(p_normalize_partition_names) = 'Y' then 
     mark_partition_idents( l_tokens, l_tokens_type, l_partition_idents );
   end if;
   
@@ -1898,6 +1899,17 @@ begin
     
     l_i := l_tokens.next (l_i);
   end loop;    
+
+  -- replace "in(<bind_list>)" with "in(<bind vectore>)", e.g:
+  --   "in(:b,:b,:b)" => "in(:b_vec)"
+  --   "in(:s,:s,:s)" => "in(:s_vec)"
+  --   "in(:n,:n,:n)" => "in(:n_vec)"
+  -- this is mainly to support user-provided list of values passed as in-list 
+  if upper(p_in_bind_list_as_bind_vec) = 'Y' then 
+    l_o := regexp_replace( l_o, '(\W)in\s*\((:b,?)+\)', '\1in(:b_vec)' );
+    l_o := regexp_replace( l_o, '(\W)in\s*\((:s,?)+\)', '\1in(:s_vec)' );
+    l_o := regexp_replace( l_o, '(\W)in\s*\((:n,?)+\)', '\1in(:n_vec)' );
+  end if;
   
   -- replace white space (that includes \r and \n) with a single char
   l_o := regexp_replace( l_o, '([[:cntrl:]]|[[:space:]])+', ' ' );
@@ -1933,6 +1945,7 @@ function bound_stmt (
   p_stmt                       varchar2,
   p_normalize_numbers_in_ident varchar2 default 'Y',
   p_normalize_partition_names  varchar2 default 'Y',
+  p_in_bind_list_as_bind_vec   varchar2 default 'Y',
   p_strip_hints                varchar2 default 'N'
 )
 return varchar2
@@ -1946,6 +1959,7 @@ begin
     p_stmt, 
     p_normalize_numbers_in_ident,
     p_normalize_partition_names,
+    p_in_bind_list_as_bind_vec,
     p_strip_hints,
     l_num_replaced_literals,
     l_replaced_values,

@@ -22,6 +22,7 @@ create or replace package bvc_tokenizer_pkg as
     p_stmt                       varchar2,
     p_normalize_numbers_in_ident varchar2 default 'Y',
     p_normalize_partition_names  varchar2 default 'Y',
+    p_in_bind_list_as_bind_vec   varchar2 default 'Y',
     p_strip_hints                varchar2 default 'N'
   )
   return varchar2
@@ -34,6 +35,7 @@ create or replace package bvc_tokenizer_pkg as
     p_stmt                       varchar2,
     p_normalize_numbers_in_ident varchar2 default 'Y',
     p_normalize_partition_names  varchar2 default 'Y',
+    p_in_bind_list_as_bind_vec   varchar2 default 'Y',
     p_strip_hints                varchar2 default 'N',
     p_num_replaced_literals      out int,
     p_replaced_values            out t_varchar2,
@@ -150,3 +152,5 @@ begin
   end loop;
 end;
 /
+
+select bvc_tokenizer_pkg.bound_stmt (q'[select * from t where x in ('a','b') and y in (1,2) and b in (:vc,:vb) and b1 in (:8,:9)]', p_in_bind_list_as_bind_vec=>'Y') as bound_stmt from dual;
