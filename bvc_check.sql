@@ -20,9 +20,9 @@
 -- See bvc_tokenizer_pkg.sql for further comments and documentation
 --
 -- Author:      Alberto Dell'Era
--- Copyright:   (c) 2003 - 2020 Alberto Dell'Era http://www.adellera.it
+-- Copyright:   (c) 2003 - 2024 Alberto Dell'Era http://www.adellera.it
 --------------------------------------------------------------------------------
-define BVC_CHECK_VERSION="1.2.3 14-April-2020"
+define BVC_CHECK_VERSION="1.2.5 21-March-2024"
 
 set null  "" trimspool on define on escape off pages 50000 tab off arraysize 100 
 set echo off verify off feedback off termout on timing off
@@ -133,6 +133,8 @@ begin
                   and sql_text not like '% bvc_marker %' 
                   and sql_text not like '%xplan_exec_marker%'
                   and not (module = 'DIO' and action = 'DIO') -- statements from diagnosing tool
+                  and not (module = 'YAH' and action = 'YAH') -- statements from diagnosing tool
+                  and not (module = 'TOPIPY' and action = 'TOPIPY') -- statements from diagnosing tool
                   and parsing_user_id not in (select user_id from dba_users where username in ('SYS', 'SYSTEM', 'SYSMAN', 'DBSNMP', 'CTXSYS', 'MDSYS', 'ORDSYS', 'ORACLE_OCM') )
               )
   loop
@@ -211,7 +213,7 @@ begin
   select /*+ cursor_sharing_exact bvc_marker */ sys_context ('USERENV', 'DB_NAME') into l_db_name from dual;
   check_print ('-----------------------------------------------------------------------------');
   check_print ('Output of Bind Variables Checker (basic script), version &BVC_CHECK_VERSION.');
-  check_print ('(c) 2003 - 2020 Alberto Dell''Era http://www.adellera.it');
+  check_print ('(c) 2003 - 2024 Alberto Dell''Era http://www.adellera.it');
   check_print ('Dumped on '||to_char(sysdate, 'yyyy/mm/dd hh24:mi:ss') || ', db_name="'||:DB_NAME||'", instance_name="'||:INSTANCE_NAME||'"');
   check_print ('-----------------------------------------------------------------------------');
   check_print ('Following '||l_num_stmts||' bound statements are not using bind variables:');

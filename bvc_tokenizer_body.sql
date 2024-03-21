@@ -1900,6 +1900,9 @@ begin
     l_i := l_tokens.next (l_i);
   end loop;    
 
+  -- replace white space (that includes \r and \n) with a single char
+  l_o := regexp_replace( l_o, '([[:cntrl:]]|[[:space:]])+', ' ' );
+
   -- replace "in(<bind_list>)" with "in(<bind vectore>)", e.g:
   --   "in(:b,:b,:b)" => "in(:b_vec)"
   --   "in(:s,:s,:s)" => "in(:s_vec)"
@@ -1910,14 +1913,11 @@ begin
   -- since of course users might decide to pass just one "parameter"
   -- even if usually they provide much more than one
   if upper(p_in_bind_list_as_bind_vec) = 'Y' then 
-    l_o := regexp_replace( l_o, '(\W)in\s*\((:b,?)+\)', '\1in(:b_vec)' );
-    l_o := regexp_replace( l_o, '(\W)in\s*\((:s,?)+\)', '\1in(:s_vec)' );
-    l_o := regexp_replace( l_o, '(\W)in\s*\((:n,?)+\)', '\1in(:n_vec)' );
+    l_o := regexp_replace( l_o, '(\W)in\s*\((\s*:b\s*,?)+\)', '\1in(:b_vec)' );
+    l_o := regexp_replace( l_o, '(\W)in\s*\((\s*:s\s*,?)+\)', '\1in(:s_vec)' );
+    l_o := regexp_replace( l_o, '(\W)in\s*\((\s*:n\s*,?)+\)', '\1in(:n_vec)' );
   end if;
   
-  -- replace white space (that includes \r and \n) with a single char
-  l_o := regexp_replace( l_o, '([[:cntrl:]]|[[:space:]])+', ' ' );
-
   -- remove redundant white space around separators such as + , ( ) etc etc
   -- note: not using characted classes (i.e. "[abc]") for escaping issues
   l_o  := regexp_replace( l_o, '\s*(\=|\<|\>|\!|\+|\-|\*|\/|\(|\)|\,|\;|\||\:|\[|\]|\.|\@)\s*', '\1');
