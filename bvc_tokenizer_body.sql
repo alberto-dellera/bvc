@@ -1478,10 +1478,9 @@ is
   l_next_i int;
   l_next_pos int;
 begin
-  
-  -- insert token containing beginning of statement
+  -- insert "conn" token containing beginning of statement
   if p_tokens.first > 1 then
-     p_tokens(1)      := substr (p_stmt, 1, l_i-1);
+     p_tokens(1)      := substr (p_stmt, 1, p_tokens.first-1);
      p_tokens_type(1) := 'conn';
   end if;
   -- insert fake token at the end
@@ -1489,11 +1488,12 @@ begin
   l_i := p_tokens.first;
   loop
     exit when p_tokens (l_i) = 'fake';
+    --log('l_id='||l_i||': <'||p_tokens (l_i)||'> '||p_tokens_type(l_i));
     -- next token must start here:
     l_next_pos := l_i + length(p_tokens(l_i));
     -- next current token starts here:
     l_next_i := p_tokens.next (l_i);
-    -- insert new token if tokens are not adjacent
+    -- insert new "conn" token if tokens are not adjacent
     if l_next_pos != l_next_i then
       p_tokens      (l_next_pos) := substr (p_stmt, l_next_pos, l_next_i - l_next_pos);
       p_tokens_type (l_next_pos) := 'conn';
